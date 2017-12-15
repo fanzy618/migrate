@@ -261,13 +261,27 @@ func (p *Postgres) ensureVersionTable() error {
 		return &database.Error{OrigErr: err, Query: []byte(query)}
 	}
 	if count == 1 {
-		return nil
-	}
-
-	// if not, create the empty migration table
-	query = `CREATE TABLE "` + p.config.MigrationsTable + `" (version bigint not null primary key, dirty boolean not null)`
-	if _, err := p.db.Exec(query); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(query)}
+		query := `SELECT COUNT(1) FROM information_schema.columns WHERE table_name = $1 AND column_name = 'dirty' LIMIT 1`
+		if err := p.db.QueryRow(query, p.config.MigrationsTable).Scan(&count); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(query)}
+		}
+		if count == 1 {
+			return nil
+		}
+		query = `ALTER TABLE "` + p.config.MigrationsTable + `" ADD COLUMN dirty boolean NOT NULL DEFAULT false;`
+		if _, err := p.db.Exec(query); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(query)}
+		}
+		query = `DELETE FROM "` + p.config.MigrationsTable + `" WHERE version != (SELECT MAX(version) FROM "` + p.config.MigrationsTable + `");`
+		if _, err := p.db.Exec(query); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(query)}
+		}
+	} else {
+		// if not, create the empty migration table
+		query = `CREATE TABLE "` + p.config.MigrationsTable + `" (version bigint not null primary key, dirty boolean not null)`
+		if _, err := p.db.Exec(query); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(query)}
+		}
 	}
 	return nil
 }

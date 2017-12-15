@@ -300,6 +300,21 @@ func (m *Mysql) ensureVersionTable() error {
 			return &database.Error{OrigErr: err, Query: []byte(query)}
 		}
 	} else {
+		var count int
+		query = `SELECT count(1) FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '` + m.config.MigrationsTable + `' AND column_name='dirty';`
+		if err := m.db.QueryRow(query).Scan(&count); err != nil {
+			return &database.Error{OrigErr: err, Query: []byte(query)}
+		}
+		if count == 0 {
+			query = `ALTER TABLE ` + m.config.MigrationsTable + ` ADD dirty boolean not null default false;`
+			if _, err := m.db.Exec(query); err != nil {
+				return &database.Error{OrigErr: err, Query: []byte(query)}
+			}
+			query = `DELETE m1 FROM ` + m.config.MigrationsTable + ` m1 JOIN (SELECT MAX(version) as max_version FROM ` + m.config.MigrationsTable + `) m2 WHERE m1.version != m2.max_version;`
+			if _, err := m.db.Exec(query); err != nil {
+				return &database.Error{OrigErr: err, Query: []byte(query)}
+			}
+		}
 		return nil
 	}
 
